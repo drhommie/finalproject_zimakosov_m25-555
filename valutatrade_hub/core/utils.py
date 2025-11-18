@@ -49,3 +49,13 @@ def validate_currency_code(code: str) -> str:
     if not normalized:
         raise ValueError("Код валюты не может быть пустым.")
     return normalized
+
+def validate_username(username: str) -> str:
+    """Проверка имени пользователя: непустая строка без пробелов по краям."""
+    if not isinstance(username, str):
+        raise TypeError("Имя пользователя должно быть строкой.")
+    normalized = username.strip()
+    if not normalized:
+        raise ValueError("Имя пользователя не может быть пустым.")
+    return normalized
+
