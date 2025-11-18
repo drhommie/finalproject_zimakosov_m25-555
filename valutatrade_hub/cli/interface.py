@@ -6,6 +6,7 @@ from typing import List, Optional
 from ..core.models import User
 from ..core.usecases import (
     buy_currency,
+    get_rate_with_cache,
     get_user_portfolio_summary,
     login_user,
     register_user,
@@ -137,6 +138,32 @@ def _parse_sell_args(args: List[str]) -> tuple[str, float]:
         raise ValueError("'amount' должен быть положительным числом") from exc
 
     return currency, amount
+
+
+def _parse_get_rate_args(args: List[str]) -> tuple[str, str]:
+    """Разбор аргументов для команды get-rate."""
+    from_code: str | None = None
+    to_code: str | None = None
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--from" and i + 1 < len(args):
+            from_code = args[i + 1]
+            i += 2
+            continue
+        if arg == "--to" and i + 1 < len(args):
+            to_code = args[i + 1]
+            i += 2
+            continue
+        raise ValueError(f"Неизвестный аргумент для get-rate: {arg}")
+
+    if from_code is None:
+        raise ValueError("Параметр --from обязателен.")
+    if to_code is None:
+        raise ValueError("Параметр --to обязателен.")
+
+    return from_code, to_code
 
 
 def _handle_register(args: List[str]) -> None:
@@ -294,6 +321,31 @@ def _handle_sell(args: List[str]) -> None:
         print(str(exc))
 
 
+def _handle_get_rate(args: List[str]) -> None:
+    """Обработчик команды get-rate."""
+    try:
+        from_code, to_code = _parse_get_rate_args(args)
+        rate, updated_at, reverse_rate = get_rate_with_cache(
+            from_currency=from_code,
+            to_currency=to_code,
+        )
+
+        base = from_code.strip().upper()
+        quote = to_code.strip().upper()
+        updated_str = updated_at.strftime("%Y-%m-%d %H:%M:%S")
+
+        print(
+            f"Курс {base}→{quote}: {rate:.8f} "
+            f"(обновлено: {updated_str})",
+        )
+        print(
+            f"Обратный курс {quote}→{base}: "
+            f"{reverse_rate:,.2f}",
+        )
+    except ValueError as exc:
+        print(str(exc))
+
+
 def _dispatch_command(command: str, args: List[str]) -> None:
     """Диспетчер команд CLI."""
     if command == "register":
@@ -306,6 +358,8 @@ def _dispatch_command(command: str, args: List[str]) -> None:
         _handle_buy(args)
     elif command == "sell":
         _handle_sell(args)
+    elif command == "get-rate":
+        _handle_get_rate(args)
     elif command in {"exit", "quit"}:
         print("Выход из ValutaTrade Hub.")
         raise SystemExit
