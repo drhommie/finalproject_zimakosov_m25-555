@@ -107,3 +107,39 @@ def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
         raise ValueError(f"Курс для пары {pair_key} не найден в rates.json.") from exc
 
     return rate, updated_at
+
+
+def login_user(username: str, password: str) -> User:
+    """Войти в систему по username и паролю.
+
+    Шаги по ТЗ:
+    1. Найти пользователя по username.
+    2. Сравнить хеш пароля.
+    """
+    username_normalized = validate_username(username)
+
+    users_data: List[Dict[str, Any]] = load_json(USERS_FILE, default=[])
+
+    for record in users_data:
+        if record.get("username") != username_normalized:
+            continue
+
+        try:
+            user = User(
+                user_id=int(record["user_id"]),
+                username=str(record["username"]),
+                hashed_password=str(record["hashed_password"]),
+                salt=str(record["salt"]),
+                registration_date=datetime.fromisoformat(
+                    str(record["registration_date"])
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Некорректные данные пользователя в хранилище.") from exc
+
+        if not user.verify_password(password):
+            raise ValueError("Неверный пароль")
+
+        return user
+
+    raise ValueError(f"Пользователь '{username_normalized}' не найден")

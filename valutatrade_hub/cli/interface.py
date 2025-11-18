@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import shlex
-from typing import List
+from typing import List, Optional
 
-from ..core.usecases import register_user
+from ..core.models import User
+from ..core.usecases import login_user, register_user
 
+_current_user: Optional[User] = None
 
 def _parse_register_args(args: List[str]) -> tuple[str, str]:
     """Разбор аргументов для команды register."""
@@ -30,6 +32,30 @@ def _parse_register_args(args: List[str]) -> tuple[str, str]:
     return username, password
 
 
+def _parse_login_args(args: List[str]) -> tuple[str, str]:
+    """Разбор аргументов для команды login."""
+    username: str | None = None
+    password: str | None = None
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--username" and i + 1 < len(args):
+            username = args[i + 1]
+            i += 2
+            continue
+        if arg == "--password" and i + 1 < len(args):
+            password = args[i + 1]
+            i += 2
+            continue
+        raise ValueError(f"Неизвестный аргумент для login: {arg}")
+    if username is None:
+        raise ValueError("Параметр --username обязателен.")
+    if password is None:
+        raise ValueError("Параметр --password обязателен.")
+    return username, password
+
+
 def _handle_register(args: List[str]) -> None:
     """Обработчик команды register."""
     try:
@@ -46,17 +72,33 @@ def _handle_register(args: List[str]) -> None:
         print(str(exc))
 
 
+def _handle_login(args: List[str]) -> None:
+    """Обработчик команды login."""
+    global _current_user
+
+    try:
+        username, password = _parse_login_args(args)
+        user = login_user(username=username, password=password)
+        _current_user = user
+        print(f"Вы вошли как '{user.username}'")
+    except ValueError as exc:
+        print(str(exc))
+
+
 def _dispatch_command(command: str, args: List[str]) -> None:
     """Диспетчер команд CLI."""
     if command == "register":
         _handle_register(args)
+    elif command == "login":
+        _handle_login(args)
     elif command in {"exit", "quit"}:
         print("Выход из ValutaTrade Hub.")
         raise SystemExit
     else:
-        print(f"Неизвестная команда '{command}'. "
-              "Попробуйте: register, login, show-portfolio, buy, sell, get-rate."
-            )
+        print(
+            f"Неизвестная команда '{command}'. "
+            "Попробуйте: register, login, show-portfolio, buy, sell, get-rate."
+        )
 
 
 def run_cli() -> None:
@@ -83,3 +125,5 @@ def run_cli() -> None:
             _dispatch_command(command, arg_tokens)
         except SystemExit:
             break
+
+
