@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "finalproject_zimakosov_m25-555"
+version = "0.1.0"
+description = "ValutaTrade Hub - платформа для отслеживания и симуляции торговли валютами"
+authors = ["Vlad Zimakosov <zimakosov-vladik@yandex.ru>"]
+readme = "README.md"
+packages = [{ include = "valutatrade_hub" }]
+
+[tool.poetry.dependencies]
+python = ">=3.12,<3.13"
+prettytable = "^3.10.0"
+
+[tool.poetry.group.dev.dependencies]
+ruff = "^0.6.0"
+
+[tool.poetry.scripts]
+project = "main:main"
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+exclude = ["venv", ".venv", "dist", "__pycache__"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
