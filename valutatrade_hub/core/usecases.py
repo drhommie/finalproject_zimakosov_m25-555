@@ -12,6 +12,7 @@ from .utils import (
     USERS_FILE,
     load_json,
     save_json,
+    validate_amount,
     validate_currency_code,
     validate_username,
 )
@@ -70,7 +71,7 @@ def register_user(username: str, password: str) -> User:
     )
     user.change_password(password)
 
-    user_record: Dict[str, object] = {
+    user_record: Dict[str, Any] = {
         "user_id": user.user_id,
         "username": user.username,
         "hashed_password": user.hashed_password,
@@ -80,33 +81,47 @@ def register_user(username: str, password: str) -> User:
     users_data.append(user_record)
     save_json(USERS_FILE, users_data)
 
-    portfolios_data: List[Dict[str, object]] = load_json(PORTFOLIOS_FILE, default=[])
+    portfolios_data: List[Dict[str, Any]] = load_json(PORTFOLIOS_FILE, default=[])
     portfolios_data.append({"user_id": user_id, "wallets": {}})
     save_json(PORTFOLIOS_FILE, portfolios_data)
 
     return user
 
 
-def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
-    """Получить курс base_currency к quote_currency из локального кеша rates.json.
+def login_user(username: str, password: str) -> User:
+    """Войти в систему по username и паролю.
 
-    Ожидается, что в rates.json ключи имеют вид "EUR_USD", "BTC_USD" и т.п.
-    Возвращает кортеж (rate, updated_at).
+    Шаги по ТЗ:
+    1. Найти пользователя по username.
+    2. Сравнить хеш пароля.
     """
-    base = validate_currency_code(base_currency)
-    quote = validate_currency_code(quote_currency)
+    username_normalized = validate_username(username)
 
-    pair_key = f"{base}_{quote}"
-    data = load_json(RATES_FILE, default={})
+    users_data: List[Dict[str, Any]] = load_json(USERS_FILE, default=[])
 
-    try:
-        item = data[pair_key]
-        rate = float(item["rate"])
-        updated_at = datetime.fromisoformat(item["updated_at"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(f"Курс для пары {pair_key} не найден в rates.json.") from exc
+    for record in users_data:
+        if record.get("username") != username_normalized:
+            continue
 
-    return rate, updated_at
+        try:
+            user = User(
+                user_id=int(record["user_id"]),
+                username=str(record["username"]),
+                hashed_password=str(record["hashed_password"]),
+                salt=str(record["salt"]),
+                registration_date=datetime.fromisoformat(
+                    str(record["registration_date"]),
+                ),
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError("Некорректные данные пользователя в хранилище.") from exc
+
+        if not user.verify_password(password):
+            raise ValueError("Неверный пароль")
+
+        return user
+
+    raise ValueError(f"Пользователь '{username_normalized}' не найден")
 
 
 def get_user_portfolio_summary(
@@ -186,37 +201,102 @@ def get_user_portfolio_summary(
     return rows, total
 
 
-def login_user(username: str, password: str) -> User:
-    """Войти в систему по username и паролю.
+def buy_currency(
+    user: User,
+    currency_code: str,
+    amount: float,
+    base_currency: str = "USD",
+) -> Dict[str, Any]:
+    """Купить валюту для пользователя.
 
     Шаги по ТЗ:
-    1. Найти пользователя по username.
-    2. Сравнить хеш пароля.
+    1. Валидировать currency и amount > 0.
+    2. Если кошелька нет — создать.
+    3. Увеличить баланс кошелька на amount.
+    4. Получить курс и оценочную стоимость покупки.
     """
-    username_normalized = validate_username(username)
+    try:
+        value = validate_amount(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("'amount' должен быть положительным числом") from exc
 
-    users_data: List[Dict[str, Any]] = load_json(USERS_FILE, default=[])
+    code = validate_currency_code(currency_code)
+    base = validate_currency_code(base_currency)
 
-    for record in users_data:
-        if record.get("username") != username_normalized:
+    portfolios_data: List[Dict[str, Any]] = load_json(
+        PORTFOLIOS_FILE,
+        default=[],
+    )
+
+    portfolio_record: Dict[str, Any] | None = None
+    for record in portfolios_data:
+        try:
+            if int(record.get("user_id", 0)) == user.user_id:
+                portfolio_record = record
+                break
+        except (TypeError, ValueError):
             continue
 
-        try:
-            user = User(
-                user_id=int(record["user_id"]),
-                username=str(record["username"]),
-                hashed_password=str(record["hashed_password"]),
-                salt=str(record["salt"]),
-                registration_date=datetime.fromisoformat(
-                    str(record["registration_date"])
-                ),
-            )
-        except (KeyError, TypeError, ValueError) as exc:
-            raise ValueError("Некорректные данные пользователя в хранилище.") from exc
+    if portfolio_record is None:
+        portfolio_record = {"user_id": user.user_id, "wallets": {}}
+        portfolios_data.append(portfolio_record)
 
-        if not user.verify_password(password):
-            raise ValueError("Неверный пароль")
+    wallets_raw = portfolio_record.get("wallets")
+    if not isinstance(wallets_raw, dict):
+        wallets_raw = {}
+        portfolio_record["wallets"] = wallets_raw
 
-        return user
+    wallet_info = wallets_raw.get(code)
+    try:
+        if isinstance(wallet_info, dict):
+            old_balance = float(wallet_info.get("balance", 0.0))
+        else:
+            old_balance = float(wallet_info or 0.0)
+    except (TypeError, ValueError):
+        old_balance = 0.0
 
-    raise ValueError(f"Пользователь '{username_normalized}' не найден")
+    new_balance = old_balance + value
+    wallets_raw[code] = {"balance": new_balance}
+
+    save_json(PORTFOLIOS_FILE, portfolios_data)
+
+    try:
+        rate, _ = get_rate(code, base)
+    except ValueError as exc:
+        raise ValueError(f"Не удалось получить курс для {code}→{base}") from exc
+
+    estimated_value = value * rate
+
+    return {
+        "currency_code": code,
+        "amount": value,
+        "rate": rate,
+        "base_currency": base,
+        "old_balance": old_balance,
+        "new_balance": new_balance,
+        "estimated_value": estimated_value,
+    }
+
+
+def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
+    """Получить курс base_currency к quote_currency из локального кеша rates.json.
+
+    Ожидается, что в rates.json ключи имеют вид "EUR_USD", "BTC_USD" и т.п.
+    Возвращает кортеж (rate, updated_at).
+    """
+    base = validate_currency_code(base_currency)
+    quote = validate_currency_code(quote_currency)
+
+    pair_key = f"{base}_{quote}"
+    data = load_json(RATES_FILE, default={})
+
+    try:
+        item = data[pair_key]
+        rate = float(item["rate"])
+        updated_at = datetime.fromisoformat(str(item["updated_at"]))
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Курс для пары {pair_key} не найден в rates.json.",
+        ) from exc
+
+    return rate, updated_at
