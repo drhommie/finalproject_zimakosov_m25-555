@@ -278,6 +278,95 @@ def buy_currency(
     }
 
 
+def sell_currency(
+    user: User,
+    currency_code: str,
+    amount: float,
+    base_currency: str = "USD",
+) -> Dict[str, Any]:
+    """Продать указанную валюту пользователя.
+
+    Шаги по ТЗ:
+    1. Валидировать входные данные.
+    2. Проверить, что кошелёк существует и достаточно средств.
+    3. Уменьшить баланс.
+    4. Опционально посчитать оценочную выручку в базовой валюте.
+    """
+    try:
+        value = validate_amount(amount)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("'amount' должен быть положительным числом") from exc
+
+    code = validate_currency_code(currency_code)
+    base = validate_currency_code(base_currency)
+
+    portfolios_data: List[Dict[str, Any]] = load_json(
+        PORTFOLIOS_FILE,
+        default=[],
+    )
+
+    portfolio_record: Dict[str, Any] | None = None
+    for record in portfolios_data:
+        try:
+            if int(record.get("user_id", 0)) == user.user_id:
+                portfolio_record = record
+                break
+        except (TypeError, ValueError):
+            continue
+
+    if portfolio_record is None:
+        raise ValueError(
+            f"У вас нет кошелька '{code}'. Добавьте валюту: она создаётся "
+            "автоматически при первой покупке.",
+        )
+
+    wallets_raw = portfolio_record.get("wallets")
+    if not isinstance(wallets_raw, dict) or code not in wallets_raw:
+        raise ValueError(
+            f"У вас нет кошелька '{code}'. Добавьте валюту: она создаётся "
+            "автоматически при первой покупке.",
+        )
+
+    wallet_info = wallets_raw.get(code)
+    try:
+        if isinstance(wallet_info, dict):
+            old_balance = float(wallet_info.get("balance", 0.0))
+        else:
+            old_balance = float(wallet_info or 0.0)
+    except (TypeError, ValueError):
+        old_balance = 0.0
+
+    if old_balance < value:
+        raise ValueError(
+            f"Недостаточно средств: доступно {old_balance:.4f} {code}, "
+            f"требуется {value:.4f} {code}",
+        )
+
+    new_balance = old_balance - value
+    wallets_raw[code] = {"balance": new_balance}
+
+    save_json(PORTFOLIOS_FILE, portfolios_data)
+
+    rate: float | None
+    estimated_value: float | None
+    try:
+        rate, _ = get_rate(code, base)
+        estimated_value = value * rate
+    except ValueError:
+        rate = None
+        estimated_value = None
+
+    return {
+        "currency_code": code,
+        "amount": value,
+        "rate": rate,
+        "base_currency": base,
+        "old_balance": old_balance,
+        "new_balance": new_balance,
+        "estimated_value": estimated_value,
+    }
+
+
 def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
     """Получить курс base_currency к quote_currency из локального кеша rates.json.
 

@@ -9,6 +9,7 @@ from ..core.usecases import (
     get_user_portfolio_summary,
     login_user,
     register_user,
+    sell_currency,
 )
 
 _current_user: Optional[User] = None
@@ -93,6 +94,37 @@ def _parse_buy_args(args: List[str]) -> tuple[str, float]:
             i += 2
             continue
         raise ValueError(f"Неизвестный аргумент для buy: {arg}")
+
+    if currency is None:
+        raise ValueError("Параметр --currency обязателен.")
+    if amount_str is None:
+        raise ValueError("Параметр --amount обязателен.")
+
+    try:
+        amount = float(amount_str)
+    except ValueError as exc:
+        raise ValueError("'amount' должен быть положительным числом") from exc
+
+    return currency, amount
+
+
+def _parse_sell_args(args: List[str]) -> tuple[str, float]:
+    """Разбор аргументов для команды sell."""
+    currency: str | None = None
+    amount_str: str | None = None
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--currency" and i + 1 < len(args):
+            currency = args[i + 1]
+            i += 2
+            continue
+        if arg == "--amount" and i + 1 < len(args):
+            amount_str = args[i + 1]
+            i += 2
+            continue
+        raise ValueError(f"Неизвестный аргумент для sell: {arg}")
 
     if currency is None:
         raise ValueError("Параметр --currency обязателен.")
@@ -216,6 +248,52 @@ def _handle_buy(args: List[str]) -> None:
         print(str(exc))
 
 
+def _handle_sell(args: List[str]) -> None:
+    """Обработчик команды sell."""
+    if _current_user is None:
+        print("Сначала выполните login")
+        return
+
+    try:
+        currency, amount = _parse_sell_args(args)
+        result = sell_currency(
+            user=_current_user,
+            currency_code=currency,
+            amount=amount,
+            base_currency="USD",
+        )
+
+        code = result["currency_code"]
+        value = float(result["amount"])
+        base = result["base_currency"]
+        old_balance = float(result["old_balance"])
+        new_balance = float(result["new_balance"])
+        rate = result["rate"]
+        estimated_value = result["estimated_value"]
+
+        amount_str = f"{value:.4f}"
+        old_str = f"{old_balance:.4f}"
+        new_str = f"{new_balance:.4f}"
+
+        if isinstance(rate, (int, float)):
+            rate_str = f"{float(rate):,.2f}"
+        else:
+            rate_str = "N/A"
+
+        print(
+            f"Продажа выполнена: {amount_str} {code} по курсу "
+            f"{rate_str} {base}/{code}",
+        )
+        print("Изменения в портфеле:")
+        print(f"- {code}: было {old_str} → стало {new_str}")
+
+        if isinstance(estimated_value, (int, float)):
+            estimated_str = f"{float(estimated_value):,.2f}"
+            print(f"Оценочная выручка: {estimated_str} {base}")
+    except ValueError as exc:
+        print(str(exc))
+
+
 def _dispatch_command(command: str, args: List[str]) -> None:
     """Диспетчер команд CLI."""
     if command == "register":
@@ -226,6 +304,8 @@ def _dispatch_command(command: str, args: List[str]) -> None:
         _handle_show_portfolio(args)
     elif command == "buy":
         _handle_buy(args)
+    elif command == "sell":
+        _handle_sell(args)
     elif command in {"exit", "quit"}:
         print("Выход из ValutaTrade Hub.")
         raise SystemExit
