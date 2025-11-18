@@ -4,7 +4,11 @@ import shlex
 from typing import List, Optional
 
 from ..core.models import User
-from ..core.usecases import login_user, register_user
+from ..core.usecases import (
+    get_user_portfolio_summary,
+    login_user,
+    register_user,
+)
 
 _current_user: Optional[User] = None
 
@@ -56,6 +60,21 @@ def _parse_login_args(args: List[str]) -> tuple[str, str]:
     return username, password
 
 
+def _parse_show_portfolio_args(args: List[str]) -> str:
+    """Разбор аргументов для команды show-portfolio."""
+    base = "USD"
+
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--base" and i + 1 < len(args):
+            base = args[i + 1]
+            i += 2
+            continue
+        raise ValueError(f"Неизвестный аргумент для show-portfolio: {arg}")
+    return base
+
+
 def _handle_register(args: List[str]) -> None:
     """Обработчик команды register."""
     try:
@@ -84,6 +103,45 @@ def _handle_login(args: List[str]) -> None:
     except ValueError as exc:
         print(str(exc))
 
+def _handle_show_portfolio(args: List[str]) -> None:
+    """Обработчик команды show-portfolio."""
+    if _current_user is None:
+        print("Сначала выполните login")
+        return
+
+    try:
+        base_currency = _parse_show_portfolio_args(args)
+        rows, total = get_user_portfolio_summary(
+            user=_current_user,
+            base_currency=base_currency,
+        )
+        base = base_currency.strip().upper()
+        username = _current_user.username
+
+        if not rows:
+            print(f"Портфель пользователя '{username}' пуст.")
+            return
+
+        print(f"Портфель пользователя '{username}' (база: {base}):")
+        for row in rows:
+            code = row["currency_code"]
+            balance = float(row["balance"])
+            value_in_base = float(row["value_in_base"])
+
+            if code in {"BTC", "ETH"}:
+                balance_str = f"{balance:.4f}"
+            else:
+                balance_str = f"{balance:.2f}"
+
+            value_str = f"{value_in_base:,.2f}"
+            print(f"- {code}: {balance_str}  → {value_str} {base}")
+
+        print("---------------------------------")
+        total_str = f"{total:,.2f}"
+        print(f"ИТОГО: {total_str} {base}")
+    except ValueError as exc:
+        print(str(exc))
+
 
 def _dispatch_command(command: str, args: List[str]) -> None:
     """Диспетчер команд CLI."""
@@ -91,13 +149,15 @@ def _dispatch_command(command: str, args: List[str]) -> None:
         _handle_register(args)
     elif command == "login":
         _handle_login(args)
+    elif command == "show-portfolio":
+        _handle_show_portfolio(args)
     elif command in {"exit", "quit"}:
         print("Выход из ValutaTrade Hub.")
         raise SystemExit
     else:
         print(
             f"Неизвестная команда '{command}'. "
-            "Попробуйте: register, login, show-portfolio, buy, sell, get-rate."
+            "Попробуйте: register, login, show-portfolio, buy, sell, get-rate.",
         )
 
 

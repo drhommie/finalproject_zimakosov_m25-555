@@ -109,6 +109,83 @@ def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
     return rate, updated_at
 
 
+def get_user_portfolio_summary(
+    user: User,
+    base_currency: str = "USD",
+) -> Tuple[List[Dict[str, Any]], float]:
+    """Вернуть сводку портфеля пользователя в базовой валюте.
+
+    Возвращает:
+        (rows, total), где
+        rows — список словарей с ключами:
+            - currency_code
+            - balance
+            - value_in_base
+        total — общая сумма в базовой валюте.
+    """
+    base = validate_currency_code(base_currency)
+
+    portfolios_data: List[Dict[str, Any]] = load_json(
+        PORTFOLIOS_FILE,
+        default=[],
+    )
+
+    portfolio_record: Dict[str, Any] | None = None
+    for record in portfolios_data:
+        try:
+            if int(record.get("user_id", 0)) == user.user_id:
+                portfolio_record = record
+                break
+        except (TypeError, ValueError):
+            continue
+
+    if portfolio_record is None:
+        return [], 0.0
+
+    wallets_raw = portfolio_record.get("wallets") or {}
+    if not isinstance(wallets_raw, dict) or not wallets_raw:
+        return [], 0.0
+
+    rows: List[Dict[str, Any]] = []
+    total = 0.0
+
+    for code, info in wallets_raw.items():
+        try:
+            if isinstance(info, dict):
+                balance_val = float(info.get("balance", 0.0))
+            else:
+                balance_val = float(info)
+        except (TypeError, ValueError):
+            balance_val = 0.0
+
+        if balance_val == 0.0:
+            continue
+
+        cur = validate_currency_code(code)
+
+        if cur == base:
+            value_in_base = balance_val
+        else:
+            try:
+                rate, _ = get_rate(cur, base)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Неизвестная базовая валюта '{base}'",
+                ) from exc
+            value_in_base = balance_val * rate
+
+        rows.append(
+            {
+                "currency_code": cur,
+                "balance": balance_val,
+                "value_in_base": value_in_base,
+            },
+        )
+        total += value_in_base
+
+    return rows, total
+
+
 def login_user(username: str, password: str) -> User:
     """Войти в систему по username и паролю.
 
