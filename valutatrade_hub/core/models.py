@@ -1,6 +1,8 @@
+from __future__ import annotations
+
 import hashlib
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class User:
@@ -148,3 +150,79 @@ class Wallet:
             "currency_code": self.currency_code,
             "balance": self._balance,
         }
+
+class Portfolio:
+    """Портфель всех кошельков одного пользователя."""
+
+    def __init__(
+        self,
+        user: User,
+        wallets: Optional[Dict[str, Wallet]] = None,
+    ) -> None:
+        self._user = user
+        self._user_id = user.user_id
+        self._wallets: Dict[str, Wallet] = wallets or {}
+
+    # ----------- Свойства -----------
+
+    @property
+    def user_id(self) -> int:
+        return self._user_id
+
+    @property
+    def user(self) -> User:
+        """Объект пользователя, только для чтения."""
+        return self._user
+
+    @property
+    def wallets(self) -> Dict[str, Wallet]:
+        """Копия словаря кошельков."""
+        return dict(self._wallets)
+
+    # ----------- Методы -----------
+
+    def add_currency(self, currency_code: str) -> Wallet:
+        """Добавить новый кошелёк для указанной валюты."""
+        code = currency_code.upper()
+        if code in self._wallets:
+            raise ValueError(f"Кошелёк для валюты {code} уже существует.")
+        wallet = Wallet(currency_code=code)
+        self._wallets[code] = wallet
+        return wallet
+
+    def get_wallet(self, currency_code: str) -> Wallet:
+        """Получить кошелёк по коду валюты."""
+        code = currency_code.upper()
+        try:
+            return self._wallets[code]
+        except KeyError as exc:
+            raise KeyError(f"Кошелёк для валюты {code} не найден.") from exc
+
+    def get_total_value(self, base_currency: str = "USD") -> float:
+        """Общая стоимость портфеля в базовой валюте.
+
+        Для упрощения используются фиксированные условные курсы.
+        """
+        exchange_rates: Dict[str, Dict[str, float]] = {
+            "USD": {"USD": 1.0, "EUR": 0.9, "BTC": 0.00002},
+            "EUR": {"USD": 1.1, "EUR": 1.0, "BTC": 0.000022},
+            "BTC": {"USD": 50000.0, "EUR": 45000.0, "BTC": 1.0},
+        }
+
+        base = base_currency.upper()
+        total = 0.0
+
+        for code, wallet in self._wallets.items():
+            cur = code.upper()
+            if cur == base:
+                rate = 1.0
+            else:
+                try:
+                    rate = exchange_rates[cur][base]
+                except KeyError as exc:
+                    raise ValueError(
+                        f"Нет курса для пары {cur}/{base}."
+                    ) from exc
+            total += wallet.balance * rate
+
+        return total
