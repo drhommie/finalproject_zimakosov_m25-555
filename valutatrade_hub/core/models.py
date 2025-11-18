@@ -100,3 +100,51 @@ class User:
         except ValueError:
             # если пароль меньше 4 символов, сразу False
             return False
+
+class Wallet:
+    """Кошелёк пользователя для одной конкретной валюты."""
+
+    def __init__(self, currency_code: str, balance: float = 0.0) -> None:
+        self.currency_code = currency_code
+        self.balance = balance  # через setter, чтобы прошла проверка
+
+    # ----------- Свойства -----------
+
+    @property
+    def balance(self) -> float:
+        return self._balance
+
+    @balance.setter
+    def balance(self, value: float) -> None:
+        if not isinstance(value, (int, float)):
+            raise TypeError("Баланс должен быть числом.")
+        if value < 0:
+            raise ValueError("Баланс не может быть отрицательным.")
+        self._balance = float(value)
+
+    # ----------- Методы -----------
+
+    def deposit(self, amount: float) -> None:
+        """Пополнение баланса."""
+        if not isinstance(amount, (int, float)):
+            raise TypeError("Сумма пополнения должна быть числом.")
+        if amount <= 0:
+            raise ValueError("Сумма пополнения должна быть положительной.")
+        self._balance += float(amount)
+
+    def withdraw(self, amount: float) -> None:
+        """Снятие средств при достаточном балансе."""
+        if not isinstance(amount, (int, float)):
+            raise TypeError("Сумма снятия должна быть числом.")
+        if amount <= 0:
+            raise ValueError("Сумма снятия должна быть положительной.")
+        if amount > self._balance:
+            raise ValueError("Недостаточно средств для снятия.")
+        self._balance -= float(amount)
+
+    def get_balance_info(self) -> dict:
+        """Информация о текущем балансе кошелька."""
+        return {
+            "currency_code": self.currency_code,
+            "balance": self._balance,
+        }
