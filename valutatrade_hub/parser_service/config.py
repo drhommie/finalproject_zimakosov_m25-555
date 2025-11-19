@@ -38,6 +38,7 @@ class ParserConfig:
     # Пути к данным (из основного конфигуратора SettingsLoader).
     data_dir: Path = SettingsLoader().get("data_dir")
     rates_file: Path = SettingsLoader().get("rates_file")
+    exchange_rates_file: Path = data_dir / "exchange_rates.json"
 
     # Фиатная базовая валюта и валюта для крипты.
     fiat_base_currency: str = "USD"
