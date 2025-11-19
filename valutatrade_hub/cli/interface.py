@@ -11,7 +11,7 @@ from ..core.exceptions import (
 from ..core.models import User
 from ..core.usecases import (
     buy_currency,
-    get_rate_with_cache,
+    get_rate,
     get_user_portfolio_summary,
     login_user,
     register_user,
@@ -276,6 +276,18 @@ def _handle_buy(args: List[str]) -> None:
         print("Изменения в портфеле:")
         print(f"- {code}: было {old_str} → стало {new_str}")
         print(f"Оценочная стоимость покупки: {estimated_str} {base}")
+    except CurrencyNotFoundError as exc:
+        print(str(exc))
+        print(
+            "Проверьте код валюты или выполните "
+            "get-rate для списка поддерживаемых валют.",
+        )
+    except ApiRequestError as exc:
+        print(str(exc))
+        print(
+            "Попробуйте повторить запрос позже или "
+            "проверьте подключение к сети.",
+        )
     except ValueError as exc:
         print(str(exc))
 
@@ -348,14 +360,16 @@ def _handle_get_rate(args: List[str]) -> None:
     """Обработчик команды get-rate."""
     try:
         from_code, to_code = _parse_get_rate_args(args)
-        rate, updated_at, reverse_rate = get_rate_with_cache(
-            from_currency=from_code,
-            to_currency=to_code,
-        )
+        rate, updated_at = get_rate(from_code, to_code)
 
         base = from_code.strip().upper()
         quote = to_code.strip().upper()
         updated_str = updated_at.strftime("%Y-%m-%d %H:%M:%S")
+
+        if rate != 0:
+            reverse_rate = 1.0 / rate
+        else:
+            reverse_rate = 0.0
 
         print(
             f"Курс {base}→{quote}: {rate:.8f} "
@@ -378,7 +392,6 @@ def _handle_get_rate(args: List[str]) -> None:
             "проверьте подключение к сети.",
         )
     except ValueError as exc:
-        # Ошибки формата аргументов и т.п.
         print(str(exc))
 
 

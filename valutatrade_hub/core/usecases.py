@@ -227,8 +227,19 @@ def buy_currency(
     except (TypeError, ValueError) as exc:
         raise ValueError("'amount' должен быть положительным числом") from exc
 
+    settings = SettingsLoader()
+
     code = validate_currency_code(currency_code)
-    base = validate_currency_code(base_currency)
+    # валюта должна быть известна реестру
+    get_currency(code)
+
+    base_code = base_currency or settings.get(
+        "default_base_currency",
+        "USD",
+    )
+    base = validate_currency_code(base_code)
+    # базовая тоже должна быть в реестре
+    get_currency(base)
 
     portfolios_data: List[Dict[str, Any]] = load_json(
         PORTFOLIOS_FILE,
@@ -267,11 +278,7 @@ def buy_currency(
 
     save_json(PORTFOLIOS_FILE, portfolios_data)
 
-    try:
-        rate, _ = get_rate(code, base)
-    except ValueError as exc:
-        raise ValueError(f"Не удалось получить курс для {code}→{base}") from exc
-
+    rate, _ = get_rate(code, base)
     estimated_value = value * rate
 
     return {
@@ -305,8 +312,18 @@ def sell_currency(
     except (TypeError, ValueError) as exc:
         raise ValueError("'amount' должен быть положительным числом") from exc
 
+    settings = SettingsLoader()
+
     code = validate_currency_code(currency_code)
-    base = validate_currency_code(base_currency)
+    get_currency(code)
+
+    base_code = base_currency or settings.get(
+        "default_base_currency",
+        "USD",
+    )
+    base = validate_currency_code(base_code)
+    get_currency(base)
+
 
     portfolios_data: List[Dict[str, Any]] = load_json(
         PORTFOLIOS_FILE,
@@ -355,14 +372,8 @@ def sell_currency(
 
     save_json(PORTFOLIOS_FILE, portfolios_data)
 
-    rate: float | None
-    estimated_value: float | None
-    try:
-        rate, _ = get_rate(code, base)
-        estimated_value = value * rate
-    except ValueError:
-        rate = None
-        estimated_value = None
+    rate, _ = get_rate(code, base)
+    estimated_value = value * rate
 
     return {
         "currency_code": code,
@@ -375,27 +386,16 @@ def sell_currency(
     }
 
 
+@log_action("GET_RATE")
 def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
-    """Получить курс base_currency к quote_currency из локального кеша rates.json.
+    """Получить курс base→quote с учётом кеша и TTL.
 
-    Ожидается, что в rates.json ключи имеют вид "EUR_USD", "BTC_USD" и т.п.
-    Возвращает кортеж (rate, updated_at).
+    Обёртка над get_rate_with_cache для единообразного поведения:
+    - валидация кодов через get_currency();
+    - TTL из SettingsLoader;
+    - выбрасывание CurrencyNotFoundError и ApiRequestError.
     """
-    base = validate_currency_code(base_currency)
-    quote = validate_currency_code(quote_currency)
-
-    pair_key = f"{base}_{quote}"
-    data = load_json(RATES_FILE, default={})
-
-    try:
-        item = data[pair_key]
-        rate = float(item["rate"])
-        updated_at = datetime.fromisoformat(str(item["updated_at"]))
-    except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError(
-            f"Курс для пары {pair_key} не найден в rates.json.",
-        ) from exc
-
+    rate, updated_at, _ = get_rate_with_cache(base_currency, quote_currency)
     return rate, updated_at
 
 
