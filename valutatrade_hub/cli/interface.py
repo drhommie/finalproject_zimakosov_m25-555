@@ -17,6 +17,7 @@ from ..core.usecases import (
     register_user,
     sell_currency,
 )
+from ..core.utils import validate_currency_code
 from ..parser_service.api_clients import (
     BaseApiClient,
     CoinGeckoClient,
@@ -214,6 +215,80 @@ def _parse_get_rate_args(args: List[str]) -> tuple[str, str]:
         raise ValueError("Параметр --to обязателен.")
 
     return from_code, to_code
+
+
+def _parse_show_rates_args(
+    args: list[str],
+) -> tuple[str | None, int | None, str | None]:
+    """Разобрать аргументы команды show-rates.
+
+    Поддерживаются флаги:
+    --currency <CODE>
+    --top <N>
+    --base <CODE>
+    Нельзя одновременно использовать --currency и --top.
+    """
+    currency: str | None = None
+    top_n: int | None = None
+    base: str | None = None
+
+    idx = 0
+    while idx < len(args):
+        token = args[idx]
+        if token == "--currency":
+            if idx + 1 >= len(args):
+                raise ValueError(
+                    "Флаг --currency требует значения: код валюты.",
+                )
+            if currency is not None:
+                raise ValueError(
+                    "Параметр --currency нельзя указывать несколько раз.",
+                )
+            currency = validate_currency_code(args[idx + 1])
+            idx += 2
+        elif token == "--top":
+            if idx + 1 >= len(args):
+                raise ValueError(
+                    "Флаг --top требует значения: положительное целое число.",
+                )
+            if top_n is not None:
+                raise ValueError(
+                    "Параметр --top нельзя указывать несколько раз.",
+                )
+            try:
+                value = int(args[idx + 1])
+            except ValueError as exc:
+                raise ValueError(
+                    "Значение --top должно быть целым числом.",
+                ) from exc
+            if value <= 0:
+                raise ValueError(
+                    "Значение --top должно быть положительным.",
+                )
+            top_n = value
+            idx += 2
+        elif token == "--base":
+            if idx + 1 >= len(args):
+                raise ValueError(
+                    "Флаг --base требует значения: код валюты.",
+                )
+            if base is not None:
+                raise ValueError(
+                    "Параметр --base нельзя указывать несколько раз.",
+                )
+            base = validate_currency_code(args[idx + 1])
+            idx += 2
+        else:
+            raise ValueError(
+                f"Неизвестный аргумент для show-rates: {token}",
+            )
+
+    if currency is not None and top_n is not None:
+        raise ValueError(
+            "Нельзя одновременно использовать --currency и --top.",
+        )
+
+    return currency, top_n, base
 
 
 def _handle_register(args: List[str]) -> None:
@@ -493,6 +568,134 @@ def _handle_get_rate(args: List[str]) -> None:
         print(str(exc))
 
 
+def _handle_show_rates(args: list[str]) -> None:
+    """Обработчик команды show-rates."""
+    try:
+        currency, top_n, base = _parse_show_rates_args(args)
+    except ValueError as exc:
+        print(str(exc))
+        return
+
+    snapshot = load_rates_snapshot()
+    pairs = snapshot.get("pairs") or {}
+    if not isinstance(pairs, dict) or not pairs:
+        print(
+            "Локальный кеш курсов пуст. "
+            "Выполните 'update-rates', чтобы загрузить данные.",
+        )
+        return
+
+    last_refresh = snapshot.get("last_refresh") or "неизвестно"
+
+    config = ParserConfig()
+    target_base = (base or config.BASE_FIAT_CURRENCY).upper()
+
+    # Определяем базовую валюту, относительно которой хранятся пары.
+    snapshot_base: str | None = None
+    for key in pairs:
+        if "_" in key:
+            _, base_code = key.split("_", 1)
+            snapshot_base = base_code.upper()
+            break
+
+    if snapshot_base is None:
+        print(
+            "Формат файла кеша некорректен. "
+            "Перезапустите 'update-rates'.",
+        )
+        return
+
+    # Подготавливаем список (from_code, rate_in_target_base, pair_key_for_output).
+    items: list[tuple[str, float, str]] = []
+
+    if target_base == snapshot_base:
+        # Базовая валюта совпадает с хранящейся — берём значения как есть.
+        for pair_key, entry in pairs.items():
+            if not isinstance(entry, dict):
+                continue
+            rate = entry.get("rate")
+            if not isinstance(rate, (int, float)):
+                continue
+            try:
+                from_code, to_code = pair_key.split("_", 1)
+            except ValueError:
+                continue
+            items.append((from_code, float(rate), f"{from_code}_{to_code}"))
+    else:
+        # Нужна переконвертация в target_base, если есть курс target_base→snapshot_base.
+        base_pair_key = f"{target_base}_{snapshot_base}"
+        base_entry = pairs.get(base_pair_key)
+        if not isinstance(base_entry, dict) or not isinstance(
+            base_entry.get("rate"),
+            (int, float),
+        ):
+            print(
+                "Не удалось конвертировать в базовую валюту "
+                f"'{target_base}': нет курса {target_base}_{snapshot_base}.",
+            )
+            return
+
+        base_rate = float(base_entry["rate"])  # 1 target_base = base_rate snapshot_base
+
+        for pair_key, entry in pairs.items():
+            if not isinstance(entry, dict):
+                continue
+            rate = entry.get("rate")
+            if not isinstance(rate, (int, float)):
+                continue
+            try:
+                from_code, to_code = pair_key.split("_", 1)
+            except ValueError:
+                continue
+            if to_code.upper() != snapshot_base:
+                continue
+            # 1 from_code = rate * snapshot_base
+            # 1 target_base = base_rate * snapshot_base
+            # => 1 from_code = (rate / base_rate) * target_base
+            converted = float(rate) / base_rate
+            items.append(
+                (from_code, converted, f"{from_code}_{target_base}"),
+            )
+
+    if not items:
+        print(
+            "Локальный кеш курсов не содержит ни одной корректной записи. "
+            "Выполните 'update-rates'.",
+        )
+        return
+
+    # Фильтр по --currency.
+    if currency is not None:
+        currency_upper = currency.upper()
+        filtered = [item for item in items if item[0] == currency_upper]
+        if not filtered:
+            print(
+                f"Курс для '{currency_upper}' не найден в кеше.",
+            )
+            return
+        items = filtered
+
+    # Фильтр по --top: только криптовалюты.
+    if top_n is not None:
+        crypto_set = set(config.CRYPTO_CURRENCIES)
+        crypto_items = [item for item in items if item[0] in crypto_set]
+        if not crypto_items:
+            print(
+                "В кеше нет данных по криптовалютам для вычисления --top.",
+            )
+            return
+        # Сортируем по убыванию курса.
+        crypto_items.sort(key=lambda x: x[1], reverse=True)
+        items = crypto_items[:top_n]
+    else:
+        # Без --top сортируем по алфавиту ключа пары.
+        items.sort(key=lambda x: x[2])
+
+    print(f"Rates from cache (updated at {last_refresh}):")
+    for _, rate, pair_key in items:
+        print(f"- {pair_key}: {rate:.5f}")
+
+
 def _dispatch_command(command: str, args: List[str]) -> None:
     """Диспетчер команд CLI."""
     if command == "register":
@@ -508,7 +711,9 @@ def _dispatch_command(command: str, args: List[str]) -> None:
     elif command == "get-rate":
         _handle_get_rate(args)
     elif command == "update-rates":
-        _handle_update_rates(args)    
+        _handle_update_rates(args)
+    elif command == "show-rates":
+        _handle_show_rates(args)        
     elif command in {"exit", "quit"}:
         print("Выход из ValutaTrade Hub.")
         raise SystemExit
@@ -516,7 +721,7 @@ def _dispatch_command(command: str, args: List[str]) -> None:
         print(
             "Неизвестная команда "
             f"'{command}'. Попробуйте: register, login, show-portfolio, "
-            "buy, sell, get-rate, update-rates.",
+            "buy, sell, get-rate, update-rates, show-rates.",
         )
 
 
