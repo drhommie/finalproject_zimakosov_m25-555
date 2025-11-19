@@ -3,56 +3,60 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 from ..infra.settings import SettingsLoader
-
-# Соответствия тикер → ID монеты в CoinGecko.
-# Эти ID используются в запросе:
-# https://api.coingecko.com/api/v3/simple/price
-CRYPTO_ID_MAP: Dict[str, str] = {
-    "BTC": "bitcoin",
-    "ETH": "ethereum",
-    "SOL": "solana",
-}
 
 
 @dataclass(frozen=True)
 class ParserConfig:
-    """Конфигурация Parser Service.
+    """
+    Конфигурация Parser Service — единая точка всех изменяемых параметров.
 
-    Здесь фиксируем:
-    - EXCHANGERATE_API_KEY: ключ для ExchangeRate-API (берём из окружения);
-    - data_dir / rates_file: пути к данным (из SettingsLoader);
-    - fiat_base_currency: базовая валюта для фиатных курсов (USD);
-    - crypto_vs_currency: в какой валюте запрашиваем крипту (usd);
-    - coingecko_base_url: базовый URL CoinGecko;
-    - exchangerate_base_url: базовый URL ExchangeRate-API;
-    - fiat_currencies: список фиатных валют, курсы которых нам нужны.
+    Требования по ТЗ:
+    - API-ключи не хранятся в коде → загружаются из окружения.
+    - Полные URL для запросов к CoinGecko и ExchangeRate-API.
+    - Списки валют и отображения для CoinGecko.
+    - Параметры запросов (таймаут, базовая валюта).
+    - Пути к файлам data/rates.json и data/exchange_rates.json.
     """
 
-    # Ключ для ExchangeRate-API, читается из переменной окружения.
-    # default="" гарантирует, что тип всегда str, без None.
+    # -----------------------------
+    # 1. API ключи (из окружения)
+    # -----------------------------
     EXCHANGERATE_API_KEY: str = os.getenv("EXCHANGERATE_API_KEY", "")
 
-    # Пути к данным (из основного конфигуратора SettingsLoader).
+    # -----------------------------
+    # 2. Эндпоинты внешних API
+    # -----------------------------
+    COINGECKO_URL: str = "https://api.coingecko.com/api/v3/simple/price"
+    EXCHANGERATE_API_URL: str = "https://v6.exchangerate-api.com/v6"
+
+    # ----------------------------------
+    # 3. Наборы валют для отслеживания
+    # ----------------------------------
+    BASE_FIAT_CURRENCY: str = "USD"      # базовая валюта фиата
+    CRYPTO_VS_CURRENCY: str = "usd"      # "vs_currencies" для CoinGecko
+
+    FIAT_CURRENCIES: Tuple[str, ...] = ("EUR", "GBP", "RUB")
+    CRYPTO_CURRENCIES: Tuple[str, ...] = ("BTC", "ETH", "SOL")
+
+    # Отображение тикер → CoinGecko ID
+    CRYPTO_ID_MAP: Dict[str, str] = {
+        "BTC": "bitcoin",
+        "ETH": "ethereum",
+        "SOL": "solana",
+    }
+
+    # -----------------------------
+    # 4. Пути к файлам данных
+    # -----------------------------
     data_dir: Path = SettingsLoader().get("data_dir")
-    rates_file: Path = SettingsLoader().get("rates_file")
+    rates_file: Path = SettingsLoader().get("rates_file")  # data/rates.json
     exchange_rates_file: Path = data_dir / "exchange_rates.json"
 
-    # Фиатная базовая валюта и валюта для крипты.
-    fiat_base_currency: str = "USD"
-    crypto_vs_currency: str = "usd"
+    # -----------------------------
+    # 5. Сетевые параметры
+    # -----------------------------
+    REQUEST_TIMEOUT: int = 10  # сек. ожидания ответа API
 
-    # Базовые URL-ы для внешних API.
-    coingecko_base_url: str = "https://api.coingecko.com/api/v3/simple/price"
-    exchangerate_base_url: str = "https://v6.exchangerate-api.com/v6"
-
-    # Какие фиатные валюты нас интересуют относительно USD.
-    # Из ответа ExchangeRate-API будем сохранять:
-    # - from_currency (например, 'EUR')
-    # - to_currency (например, 'USD')
-    # - rate
-    # - timestamp
-    # - source='ExchangeRate-API'
-    fiat_currencies: tuple[str, ...] = ("EUR", "GBP", "RUB")
