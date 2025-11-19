@@ -5,6 +5,8 @@ import string
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
+from .currencies import get_currency
+from .exceptions import ApiRequestError, InsufficientFundsError
 from .models import User
 from .utils import (
     PORTFOLIOS_FILE,
@@ -337,7 +339,7 @@ def sell_currency(
         old_balance = 0.0
 
     if old_balance < value:
-        raise ValueError(
+        raise InsufficientFundsError(
             f"Недостаточно средств: доступно {old_balance:.4f} {code}, "
             f"требуется {value:.4f} {code}",
         )
@@ -409,6 +411,10 @@ def get_rate_with_cache(
     base = validate_currency_code(from_currency)
     quote = validate_currency_code(to_currency)
 
+    # Валидируем, что такие коды валют вообще поддерживаются реестром
+    get_currency(base)
+    get_currency(quote)
+
     data: Dict[str, Any] = load_json(RATES_FILE, default={})
 
     direct_key = f"{base}_{quote}"
@@ -451,7 +457,10 @@ def get_rate_with_cache(
 
     # 3. Если ничего не нашли — считаем, что Parser Service недоступен
     if rate is None or updated_at is None:
-        raise ValueError(f"Курс {base}→{quote} недоступен. Повторите попытку позже.")
+        raise ApiRequestError(
+            f"Ошибка при обращении к внешнему API: "
+            f"Курс {base}→{quote} недоступен. Повторите попытку позже.",
+        )
 
     # 4. Проверяем "свежесть" курса и при необходимости обновляем метку времени
     now = datetime.now()

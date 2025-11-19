@@ -127,5 +127,6 @@ def get_currency(code: str) -> Currency:
         return _CURRENCY_REGISTRY[normalized]
     except KeyError as exc:
         raise CurrencyNotFoundError(
-            f"Валюта с кодом '{normalized}' не зарегистрирована.",
+            f"Неизвестная валюта '{normalized}'",
         ) from exc
+

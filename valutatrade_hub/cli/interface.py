@@ -3,6 +3,11 @@ from __future__ import annotations
 import shlex
 from typing import List, Optional
 
+from ..core.exceptions import (
+    ApiRequestError,
+    CurrencyNotFoundError,
+    InsufficientFundsError,
+)
 from ..core.models import User
 from ..core.usecases import (
     buy_currency,
@@ -317,7 +322,25 @@ def _handle_sell(args: List[str]) -> None:
         if isinstance(estimated_value, (int, float)):
             estimated_str = f"{float(estimated_value):,.2f}"
             print(f"Оценочная выручка: {estimated_str} {base}")
+    except InsufficientFundsError as exc:
+        # Недостаточно средств → показываем сообщение как есть
+        print(str(exc))
+    except CurrencyNotFoundError as exc:
+        # Неизвестная валюта → предлагаем посмотреть коды
+        print(str(exc))
+        print(
+            "Проверьте код валюты или выполните "
+            "get-rate для списка поддерживаемых валют.",
+        )
+    except ApiRequestError as exc:
+        # Проблема с внешним API (Parser Service)
+        print(str(exc))
+        print(
+            "Попробуйте повторить запрос позже или "
+            "проверьте подключение к сети.",
+        )
     except ValueError as exc:
+        # Остальные ошибки валидации (amount и т.п.)
         print(str(exc))
 
 
@@ -342,7 +365,20 @@ def _handle_get_rate(args: List[str]) -> None:
             f"Обратный курс {quote}→{base}: "
             f"{reverse_rate:,.2f}",
         )
+    except CurrencyNotFoundError as exc:
+        print(str(exc))
+        print(
+            "Проверьте код валюты или выполните "
+            "get-rate для списка поддерживаемых валют.",
+        )
+    except ApiRequestError as exc:
+        print(str(exc))
+        print(
+            "Попробуйте повторить запрос позже или "
+            "проверьте подключение к сети.",
+        )
     except ValueError as exc:
+        # Ошибки формата аргументов и т.п.
         print(str(exc))
 
 
