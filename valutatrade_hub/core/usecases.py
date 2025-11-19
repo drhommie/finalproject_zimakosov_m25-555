@@ -5,6 +5,8 @@ import string
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
+from ..decorators import log_action
+from ..infra.settings import SettingsLoader
 from .currencies import get_currency
 from .exceptions import ApiRequestError, InsufficientFundsError
 from .models import User
@@ -26,6 +28,7 @@ def _generate_salt(length: int = 8) -> str:
     return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
+@log_action("REGISTER")
 def register_user(username: str, password: str) -> User:
     """Зарегистрировать нового пользователя.
 
@@ -90,6 +93,7 @@ def register_user(username: str, password: str) -> User:
     return user
 
 
+@log_action("LOGIN")
 def login_user(username: str, password: str) -> User:
     """Войти в систему по username и паролю.
 
@@ -203,6 +207,7 @@ def get_user_portfolio_summary(
     return rows, total
 
 
+@log_action("BUY", verbose=True)
 def buy_currency(
     user: User,
     currency_code: str,
@@ -280,6 +285,7 @@ def buy_currency(
     }
 
 
+@log_action("SELL", verbose=True)
 def sell_currency(
     user: User,
     currency_code: str,
@@ -396,10 +402,11 @@ def get_rate(base_currency: str, quote_currency: str) -> Tuple[float, datetime]:
 def get_rate_with_cache(
     from_currency: str,
     to_currency: str,
-    max_age_seconds: int = 300,
 ) -> Tuple[float, datetime, float]:
-    """Получить курс from→to с поддержкой кеша и обратного курса.
-
+    """Получить курс from→to с поддержкой кеша и обратного курса."""
+    settings = SettingsLoader()
+    max_age_seconds = int(settings.get("rates_ttl_seconds", 300))
+    """
     1. Валидируем коды валют.
     2. Пытаемся взять курс из локального кеша rates.json.
        - Если курс свежий (моложе max_age_seconds), используем его.
