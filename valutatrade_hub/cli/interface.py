@@ -252,13 +252,12 @@ def _handle_buy(args: List[str]) -> None:
             user=_current_user,
             currency_code=currency,
             amount=amount,
-            base_currency="USD",
         )
 
         code = result["currency_code"]
         value = float(result["amount"])
-        rate = float(result["rate"])
         base = result["base_currency"]
+        rate = float(result["rate"])
         old_balance = float(result["old_balance"])
         new_balance = float(result["new_balance"])
         estimated_value = float(result["estimated_value"])
@@ -304,7 +303,6 @@ def _handle_sell(args: List[str]) -> None:
             user=_current_user,
             currency_code=currency,
             amount=amount,
-            base_currency="USD",
         )
 
         code = result["currency_code"]
@@ -312,17 +310,14 @@ def _handle_sell(args: List[str]) -> None:
         base = result["base_currency"]
         old_balance = float(result["old_balance"])
         new_balance = float(result["new_balance"])
-        rate = result["rate"]
-        estimated_value = result["estimated_value"]
+        rate = float(result["rate"])
+        estimated_value = float(result["estimated_value"])
 
         amount_str = f"{value:.4f}"
         old_str = f"{old_balance:.4f}"
         new_str = f"{new_balance:.4f}"
-
-        if isinstance(rate, (int, float)):
-            rate_str = f"{float(rate):,.2f}"
-        else:
-            rate_str = "N/A"
+        rate_str = f"{rate:,.2f}"
+        estimated_str = f"{estimated_value:,.2f}"
 
         print(
             f"Продажа выполнена: {amount_str} {code} по курсу "
@@ -330,29 +325,22 @@ def _handle_sell(args: List[str]) -> None:
         )
         print("Изменения в портфеле:")
         print(f"- {code}: было {old_str} → стало {new_str}")
-
-        if isinstance(estimated_value, (int, float)):
-            estimated_str = f"{float(estimated_value):,.2f}"
-            print(f"Оценочная выручка: {estimated_str} {base}")
+        print(f"Оценочная выручка: {estimated_str} {base}")
     except InsufficientFundsError as exc:
-        # Недостаточно средств → показываем сообщение как есть
         print(str(exc))
     except CurrencyNotFoundError as exc:
-        # Неизвестная валюта → предлагаем посмотреть коды
         print(str(exc))
         print(
             "Проверьте код валюты или выполните "
             "get-rate для списка поддерживаемых валют.",
         )
     except ApiRequestError as exc:
-        # Проблема с внешним API (Parser Service)
         print(str(exc))
         print(
             "Попробуйте повторить запрос позже или "
             "проверьте подключение к сети.",
         )
     except ValueError as exc:
-        # Остальные ошибки валидации (amount и т.п.)
         print(str(exc))
 
 
