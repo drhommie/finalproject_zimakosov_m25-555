@@ -17,6 +17,14 @@ from ..core.usecases import (
     register_user,
     sell_currency,
 )
+from ..parser_service.api_clients import (
+    BaseApiClient,
+    CoinGeckoClient,
+    ExchangeRateApiClient,
+)
+from ..parser_service.config import ParserConfig
+from ..parser_service.storage import load_rates_snapshot
+from ..parser_service.updater import RatesUpdater
 
 _current_user: Optional[User] = None
 
@@ -143,6 +151,43 @@ def _parse_sell_args(args: List[str]) -> tuple[str, float]:
         raise ValueError("'amount' должен быть положительным числом") from exc
 
     return currency, amount
+
+
+def _parse_update_rates_args(args: list[str]) -> str | None:
+    """Разобрать аргументы команды update-rates.
+
+    Поддерживается флаг:
+    --source <coingecko|exchangerate>
+    """
+    source: str | None = None
+    idx = 0
+
+    while idx < len(args):
+        token = args[idx]
+        if token == "--source":
+            if idx + 1 >= len(args):
+                raise ValueError(
+                    "Флаг --source требует значения: "
+                    "coingecko или exchangerate.",
+                )
+            if source is not None:
+                raise ValueError(
+                    "Параметр --source нельзя указывать несколько раз.",
+                )
+            value = args[idx + 1].lower()
+            if value not in ("coingecko", "exchangerate"):
+                raise ValueError(
+                    "Недопустимое значение для --source. "
+                    "Допустимы: coingecko, exchangerate.",
+                )
+            source = value
+            idx += 2
+        else:
+            raise ValueError(
+                f"Неизвестный аргумент для update-rates: {token}",
+            )
+
+    return source
 
 
 def _parse_get_rate_args(args: List[str]) -> tuple[str, str]:
@@ -344,6 +389,71 @@ def _handle_sell(args: List[str]) -> None:
         print(str(exc))
 
 
+def _handle_update_rates(args: list[str]) -> None:
+    """Обработчик команды update-rates."""
+    try:
+        source = _parse_update_rates_args(args)
+    except ValueError as exc:
+        print(str(exc))
+        return
+
+    print("Запуск обновления курсов...")
+
+    config = ParserConfig()
+    clients: list[BaseApiClient]
+
+    if source == "coingecko":
+        print("Источник: только CoinGecko.")
+        clients = [CoinGeckoClient(config)]
+    elif source == "exchangerate":
+        print("Источник: только ExchangeRate-API.")
+        clients = [ExchangeRateApiClient(config)]
+    else:
+        print("Источники: CoinGecko и ExchangeRate-API.")
+        clients = []
+
+    try:
+        if clients:
+            updater = RatesUpdater(clients=clients, config=config)
+        else:
+            updater = RatesUpdater(config=config)
+
+        success = updater.run_update()
+    except ApiRequestError as exc:
+        print(f"Ошибка при обновлении курсов: {exc}")
+        print("Подробности смотрите в logs/actions.log.")
+        return
+
+    snapshot = load_rates_snapshot()
+    pairs = snapshot.get("pairs") or {}
+    last_refresh = snapshot.get("last_refresh") or "неизвестно"
+
+    total_rates = len(pairs)
+
+    if not success:
+        print("Обновление завершено с ошибками.")
+        if total_rates:
+            print(
+                "Текущие доступные курсы: "
+                f"{total_rates}. Последнее обновление: {last_refresh}.",
+            )
+        print("Подробности смотрите в logs/actions.log.")
+        return
+
+    if not total_rates:
+        print(
+            "Обновление завершено, но курсы не найдены. "
+            "Проверьте логи в logs/actions.log.",
+        )
+        return
+
+    print(
+        "Обновление успешно. "
+        f"Всего обновлено курсов: {total_rates}. "
+        f"Последнее обновление: {last_refresh}.",
+    )
+
+
 def _handle_get_rate(args: List[str]) -> None:
     """Обработчик команды get-rate."""
     try:
@@ -397,13 +507,16 @@ def _dispatch_command(command: str, args: List[str]) -> None:
         _handle_sell(args)
     elif command == "get-rate":
         _handle_get_rate(args)
+    elif command == "update-rates":
+        _handle_update_rates(args)    
     elif command in {"exit", "quit"}:
         print("Выход из ValutaTrade Hub.")
         raise SystemExit
     else:
         print(
-            f"Неизвестная команда '{command}'. "
-            "Попробуйте: register, login, show-portfolio, buy, sell, get-rate.",
+            "Неизвестная команда "
+            f"'{command}'. Попробуйте: register, login, show-portfolio, "
+            "buy, sell, get-rate, update-rates.",
         )
 
 

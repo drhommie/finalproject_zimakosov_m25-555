@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -42,11 +42,13 @@ class ParserConfig:
     CRYPTO_CURRENCIES: Tuple[str, ...] = ("BTC", "ETH", "SOL")
 
     # Отображение тикер → CoinGecko ID
-    CRYPTO_ID_MAP: Dict[str, str] = {
-        "BTC": "bitcoin",
-        "ETH": "ethereum",
-        "SOL": "solana",
-    }
+    CRYPTO_ID_MAP: Dict[str, str] = field(
+        default_factory=lambda: {
+            "BTC": "bitcoin",
+            "ETH": "ethereum",
+            "SOL": "solana",
+        },
+    )
 
     # -----------------------------
     # 4. Пути к файлам данных
