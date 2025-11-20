@@ -1,6 +1,24 @@
+# виртуальное окружение
 .venv/
-dist/
+
+# кэш python
 __pycache__/
 *.pyc
+
+# дистрибутивы
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# временные файлы
 *.log
-.DS_Store
+*.tmp
+
+# данные по проекту
+data/*.json
+
+# не коммитить runtime-файлы
+logs/
