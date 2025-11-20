@@ -22,3 +22,5 @@ data/*.json
 
 # не коммитить runtime-файлы
 logs/
+
+.DS_Store

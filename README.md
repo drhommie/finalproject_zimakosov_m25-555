@@ -94,8 +94,8 @@ make project
 ### 4.1. Регистрация и логин
 
 ```text
-> register --username alice --password 1234
-> login --username alice --password 1234
+> register --username mike --password 1234
+> login --username mike --password 1234
 ```
 
 ---
@@ -104,7 +104,7 @@ make project
 
 ```text
 > show-portfolio
-Портфель пользователя 'alice' ...
+Портфель пользователя 'mike' ...
 ```
 
 ---
@@ -217,7 +217,7 @@ Parser Service ведёт историю всех замеров:
 ## 7. Настройка EXCHANGERATE_API_KEY
 
 ```bash
-export EXCHANGERATE_API_KEY="ВАШ_КЛЮЧ"
+export EXCHANGERATE_API_KEY="api_key"
 ```
 
 ParserConfig автоматически подтягивает ключ из окружения.
@@ -231,7 +231,7 @@ ParserConfig автоматически подтягивает ключ из о�
 Пример:
 
 ```text
-2025-11-19T21:48:20 [INFO] valutatrade.actions - BUY user='alice' currency='BTC' amount=0.0500 ...
+2025-11-19T21:48:20 [INFO] valutatrade.actions - BUY user='mike' currency='BTC' amount=0.0500 ...
 ```
 
 Ошибки:
@@ -260,8 +260,8 @@ make package-install
 Полный сценарий:
 
 ```text
-> register --username alice --password 1234
-> login --username alice --password 1234
+> register --username mike --password 1234
+> login --username mike --password 1234
 > update-rates
 > buy --currency BTC --amount 0.05
 > sell --currency BTC --amount 0.01
@@ -279,3 +279,13 @@ make package-install
 - Singleton  
 - Исключения  
 - Логирование  
+
+---
+
+## Демонстрация (asciinema)
+
+Полный сценарий работы показан в демонстрации ниже (встроенная запись):
+
+[![asciinema demo (full)](https://asciinema.org/a/QOBvpyOi2wdsjx7ACx8slZii1.svg)](https://asciinema.org/a/QOBvpyOi2wdsjx7ACx8slZii1)
+
+---
