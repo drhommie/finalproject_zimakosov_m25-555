@@ -198,18 +198,27 @@ class Portfolio:
         except KeyError as exc:
             raise KeyError(f"Кошелёк для валюты {code} не найден.") from exc
 
-    def get_total_value(self, base_currency: str = "USD") -> float:
+    def get_total_value(
+        self, 
+        base_currency: str = "USD",
+        rates: Dict[str, float] | None = None,
+    ) -> float:
         """Общая стоимость портфеля в базовой валюте.
 
         Для упрощения используются фиксированные условные курсы.
         """
-        exchange_rates: Dict[str, Dict[str, float]] = {
-            "USD": {"USD": 1.0, "EUR": 0.9, "BTC": 0.00002},
-            "EUR": {"USD": 1.1, "EUR": 1.0, "BTC": 0.000022},
-            "BTC": {"USD": 50000.0, "EUR": 45000.0, "BTC": 1.0},
-        }
-
         base = base_currency.upper()
+
+        if rates is None:
+            exchange_rates = {
+                "USD_EUR": 0.9,
+                "EUR_USD": 1.1,
+                "BTC_USD": 50000.0,
+                "BTC_EUR": 45000.0,
+            }
+        else:
+            exchange_rates = rates
+
         total = 0.0
 
         for code, wallet in self._wallets.items():
@@ -217,8 +226,9 @@ class Portfolio:
             if cur == base:
                 rate = 1.0
             else:
+                pair_key = f"{cur}_{base}"
                 try:
-                    rate = exchange_rates[cur][base]
+                    rate = exchange_rates[pair_key]
                 except KeyError as exc:
                     raise ValueError(
                         f"Нет курса для пары {cur}/{base}."
