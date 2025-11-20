@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import secrets
 import string
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from ..decorators import log_action
@@ -404,47 +404,41 @@ def get_rate_with_cache(
     to_currency: str,
 ) -> Tuple[float, datetime, float]:
     """Получить курс from→to с поддержкой кеша и обратного курса."""
+
     settings = SettingsLoader()
     max_age_seconds = int(settings.get("rates_ttl_seconds", 300))
-    """
-    1. Валидируем коды валют.
-    2. Пытаемся взять курс из локального кеша rates.json.
-       - Если курс свежий (моложе max_age_seconds), используем его.
-       - Иначе обновляем метку времени (заглушка Parser Service).
-    3. Если есть только обратная пара (BTC_USD при запросе USD→BTC) —
-       инвертируем курс.
-    4. Возвращаем (rate, updated_at, reverse_rate).
-    """
+
     base = validate_currency_code(from_currency)
     quote = validate_currency_code(to_currency)
 
-    # Валидируем, что такие коды валют вообще поддерживаются реестром
     get_currency(base)
     get_currency(quote)
 
     data: Dict[str, Any] = load_json(RATES_FILE, default={})
+
+    # <<<< ВАЖНО: новый правильный доступ >>>>
+    pairs = data.get("pairs", {})
 
     direct_key = f"{base}_{quote}"
     reverse_key = f"{quote}_{base}"
 
     rate: float | None = None
     updated_at: datetime | None = None
-    used_key: str | None = None
 
-    # 1. Пытаемся найти прямую пару base_quote
-    entry = data.get(direct_key)
+    # ---- 1. Ищем прямую пару base_quote ----
+    entry = pairs.get(direct_key)
     if isinstance(entry, dict) and "rate" in entry and "updated_at" in entry:
         try:
             rate = float(entry["rate"])
-            updated_at = datetime.fromisoformat(str(entry["updated_at"]))
-            used_key = direct_key
+            updated_str = entry["updated_at"].replace("Z", "+00:00")
+            updated_at = datetime.fromisoformat(updated_str)
         except (TypeError, ValueError):
             rate = None
             updated_at = None
 
-    # 2. Если прямой пары нет — пробуем обратную
-    if rate is None or updated_at is None:
-        entry_rev = data.get(reverse_key)
+    # ---- 2. Ищем обратную пару quote_base ----
+    if rate is None:
+        entry_rev = pairs.get(reverse_key)
         if (
             isinstance(entry_rev, dict)
             and "rate" in entry_rev
@@ -452,45 +446,29 @@ def get_rate_with_cache(
         ):
             try:
                 raw_rate = float(entry_rev["rate"])
-                if raw_rate != 0:
-                    rate = 1.0 * (1.0 / raw_rate)
-                else:
-                    rate = 0.0
-                updated_at = datetime.fromisoformat(str(entry_rev["updated_at"]))
-                used_key = reverse_key
+                rate = 1.0 / raw_rate if raw_rate != 0 else 0.0
+                updated_rev_str = entry_rev["updated_at"].replace("Z", "+00:00")
+                updated_at = datetime.fromisoformat(updated_rev_str)
             except (TypeError, ValueError):
                 rate = None
                 updated_at = None
 
-    # 3. Если ничего не нашли — считаем, что Parser Service недоступен
+    # ---- 3. Вообще не нашли ----
     if rate is None or updated_at is None:
         raise ApiRequestError(
-            f"Ошибка при обращении к внешнему API: "
-            f"Курс {base}→{quote} недоступен. Повторите попытку позже.",
+            f"Курс {base}→{quote} недоступен. "
+            f"Выполните 'update-rates' и повторите попытку.",
         )
 
-    # 4. Проверяем "свежесть" курса и при необходимости обновляем метку времени
-    now = datetime.now()
-    try:
-        age_seconds = (now - updated_at).total_seconds()
-    except TypeError:
-        age_seconds = max_age_seconds + 1
+    # ---- 4. Проверяем TTL ----
+    now = datetime.now(timezone.utc)
+    age_seconds = (now - updated_at).total_seconds()
 
-    if age_seconds > max_age_seconds and used_key is not None:
-        # Заглушка Parser Service: обновляем только updated_at и last_refresh
-        new_ts = now.isoformat(timespec="seconds")
-        entry_to_update = data.get(used_key)
-        if isinstance(entry_to_update, dict):
-            entry_to_update["updated_at"] = new_ts
-        data["last_refresh"] = new_ts
-        data["source"] = "ParserServiceStub"
-        save_json(RATES_FILE, data)
-        updated_at = now
+    if age_seconds > max_age_seconds:
+        raise ApiRequestError(
+            f"Курс {base}→{quote} недоступен: данные устарели. "
+            "Выполните 'update-rates' и повторите попытку."
+        )
 
-    # Обратный курс (to→from)
-    if rate != 0:
-        reverse_rate = 1.0 * (1.0 / rate)
-    else:
-        reverse_rate = 0.0
-
+    reverse_rate = 1.0 / rate if rate != 0 else 0.0
     return rate, updated_at, reverse_rate
